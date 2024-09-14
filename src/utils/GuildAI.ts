@@ -86,7 +86,7 @@ export class GuildAI {
             messages: [
                 { role: "system", content: this.shouldReplyPrompt },
                 ...this.messages,
-                { role: "user", content: message.content },
+                await this.generateChatCompletionMessageParam(message),
             ],
             response_format: zodResponseFormat(ShouldReply, "shouldReply"),
             max_tokens: this.maxTokens,
@@ -135,6 +135,7 @@ export class GuildAI {
             const messageReference = message.reference?.messageId
             ? await message.channel.messages.fetch(message.reference.messageId)
             : null;          
+
 
         return {
             role: role,
