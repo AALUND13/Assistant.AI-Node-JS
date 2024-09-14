@@ -1,14 +1,15 @@
-import { Client, Message, User } from "discord.js";
+import { Message } from "discord.js";
 import OpenAI from "openai";
-import { ChatCompletionContentPart, ChatCompletionCreateParams, ChatCompletionMessage, ChatCompletionMessageParam } from "openai/resources";
+import { ChatCompletionAssistantMessageParam, ChatCompletionContentPart, ChatCompletionMessageParam, ChatCompletionUserMessageParam, ChatModel } from "openai/resources";
 import { logger } from "../logger";
 
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
-import { ParsedChatCompletion } from "openai/resources/beta/chat/completions";
+import { client } from "../client";
 
 export const openAI = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// Define the schema for the response from the OpenAI API
 const Step = z.object({
     content: z.string(),
 })
@@ -22,26 +23,37 @@ const ShouldReply = z.object({
     shouldReply: z.boolean(),
 })
 
+/**
+* GuildAI class
+* 
+* This class is used to manage the AI for a specific guild.
+* It handles the logic for generating responses to user messages.
+*/
 export class GuildAI {
-    private messages: [[string, string], string][] = [];
+    private messages: ChatCompletionMessageParam[] = [];
+    private client = client;
 
     constructor(
-        public client: Client,
         public guildId: string,
         public openAI: OpenAI,
 
-        // The maximum number of messages to store in the AI's memory
-        public MaxMessages: number = 150,
-        public replyPrompt: string = this.generateReplyPrompt(client),
-        public shouldReplyPrompt: string = this.generateShouldReplyPrompt(client),
+        public model: ChatModel = "gpt-4o-mini",
+        public maxTokens: number = 500,
+
+        public MaxMessages: number = 50, // The maximum number of messages to store in the AI's memory
+        public replyPrompt: string = this.DefaultReplyPrompt,
+        public shouldReplyPrompt: string = this.DefaultShouldReplyPrompt,
     ) {
         this.guildId = guildId;
         this.openAI = openAI;
+
+        this.replyPrompt = replyPrompt || this.DefaultReplyPrompt;
+        this.shouldReplyPrompt = shouldReplyPrompt || this.DefaultShouldReplyPrompt
     }
 
-    private generateShouldReplyPrompt(client: Client): string {
-        const botDisplayname = client.user?.displayName;
-        const botId = client.user?.id;
+    public get DefaultShouldReplyPrompt(): string {
+        const botDisplayname = this.client.user?.displayName;
+        const botId = this.client.user?.id;
 
         return `
         You are a Discord bot named ${botDisplayname}, with the ID ${botId}.
@@ -54,9 +66,9 @@ export class GuildAI {
         `;
     }
 
-    private generateReplyPrompt(client: Client): string {
-        const botDisplayname = client.user?.displayName;
-        const botId = client.user?.id;
+    public get DefaultReplyPrompt(): string {
+        const botDisplayname = this.client.user?.displayName;
+        const botId = this.client.user?.id;
 
         return `
         You are a Discord bot named ${botDisplayname}, with the ID ${botId}.
@@ -68,64 +80,41 @@ export class GuildAI {
         `;
     }
 
-    private get messagesParts(): ChatCompletionMessageParam[] {
-        return this.messages.map<ChatCompletionMessageParam>(([author, msg]) => ({
-            role: msg[1] !== this.client.user?.id ? "user" : "assistant",
-            content: `[${author[0]}, ${author[1]}]: ${msg}`,
-        }));
-    }
-
     private async shouldReply(message: Message): Promise<boolean> {
         const response = await this.openAI.beta.chat.completions.parse({
-            model: "gpt-4o-mini",
+            model: this.model,
             messages: [
                 { role: "system", content: this.shouldReplyPrompt },
-                ...this.messagesParts,
+                ...this.messages,
                 { role: "user", content: message.content },
             ],
             response_format: zodResponseFormat(ShouldReply, "shouldReply"),
-            max_tokens: 500,
+            max_tokens: this.maxTokens,
         });
 
         return response.choices[0]?.message?.parsed?.shouldReply ?? false;
     }
 
     private async generateResponse(message: Message) {
-        this.addMessage(message.author, message.content);
+        this.addMessage(message)
         const reply = await this.shouldReply(message);
         if (reply) {
             message.channel.sendTyping();
             const typeingIndicator = setInterval(() => message.channel.sendTyping(), 1000);
     
-            const imageUrlsParts = message.attachments
-                .filter(attachment => attachment.contentType?.startsWith("image"))
-                .map<ChatCompletionContentPart>(url => ({
-                    type: "image_url",
-                    image_url: { "url": url.url },
-                }));
-    
+
             const response = await this.openAI.beta.chat.completions.parse({
-                model: "gpt-4o-mini",
+                model: this.model,
                 messages: [
                     { role: "system", content: this.replyPrompt },
-                    ...this.messagesParts,
-                    {
-                        role: "user",
-                        content: [
-                            {
-                                type: "text",
-                                text: `[User: ${message.author.displayName}, ID: ${message.author.id}] Message: ${message.content}`,
-                            },                        
-                            ...imageUrlsParts,
-                        ]
-                    },
+                    ...this.messages,
                 ],
                 response_format: zodResponseFormat(Reasoning, "reasoning"),
-                max_tokens: 500,
+                max_tokens: this.maxTokens,
             });
     
             if (!response.choices[0]?.message?.refusal && response.choices[0]?.message?.parsed?.conclusion) {
-                this.addMessage(this.client.user!, response.choices[0].message.parsed?.conclusion);
+                this.addMessage({ role: "assistant", content: response.choices[0]?.message?.parsed?.conclusion });
             }
     
             clearInterval(typeingIndicator);
@@ -133,13 +122,43 @@ export class GuildAI {
         }
     }
 
-    private addMessage(user: User, message: string): void {
-        this.messages.push([[user.displayName, user.id], message]);
+    private async generateChatCompletionMessageParam(message: Message): Promise<ChatCompletionMessageParam> {
+        const role = message.author.id === this.client.user?.id ? "assistant" : "user";
+        const imageUrlsParts = message.attachments
+            .filter(attachment => attachment.contentType?.startsWith("image"))
+            .map<ChatCompletionContentPart>(attachment => ({
+                type: "image_url",
+                image_url: { "url": attachment.url },
+            }));
 
+        
+            const messageReference = message.reference?.messageId
+            ? await message.channel.messages.fetch(message.reference.messageId)
+            : null;          
+
+        return {
+            role: role,
+            content: [
+                { type: "text", text: `[User: ${message.author.displayName}, ID: ${message.author.id}, ReplyTo: ${messageReference ? messageReference?.author.displayName : 'none'}] ${message.content}` },
+                ...imageUrlsParts,
+            ]
+        } as ChatCompletionMessageParam;
+    }
+
+    private async addMessage(message: Message | ChatCompletionMessageParam): Promise<void> {
+        if (!(message instanceof Message)) {
+            this.messages.push(message);
+            return;
+        }
+        
+        const messageParam = await this.generateChatCompletionMessageParam(message);
+        this.messages.push(messageParam);
+    
         if (this.messages.length > this.MaxMessages) {
             this.messages.shift();
         }
     }
+    
 
     public async onUserMessage(message: Message): Promise<void> {
         logger.info(`Received message from ${message.author.displayName} in guild ${message.guild?.name}`);

@@ -1,6 +1,5 @@
 import { Client, Message } from "discord.js";
-import { logger } from "../../logger";
-import { GuildAI, openAI } from "../../utils/openAI";
+import { GuildAI, openAI } from "../../utils/GuildAI";
 
 const GuildChatAI = new Map<string, GuildAI>();
 
@@ -9,7 +8,7 @@ export function execute(message: Message, client: Client): void {
     if (!message.guild) return;
 
     if (!GuildChatAI.has(message.guild.id)) {
-        GuildChatAI.set(message.guild.id, new GuildAI(client, message.guild.id, openAI));
+        GuildChatAI.set(message.guild.id, new GuildAI(message.guild.id, openAI));
     }
 
     const ai = GuildChatAI.get(message.guild.id);
