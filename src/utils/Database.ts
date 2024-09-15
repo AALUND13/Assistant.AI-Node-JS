@@ -1,10 +1,11 @@
 import * as fs from 'fs';
+type PathLike = fs.PathLike;
 
 class Database<T> {
     public data: T;
-    private fileName: string;
+    private fileName: PathLike;
 
-    constructor(fileName: string, defaultData: T) {
+    constructor(fileName: PathLike, defaultData: T) {
         this.fileName = fileName;
 
         if (fs.existsSync(fileName)) {
@@ -20,7 +21,7 @@ class Database<T> {
         fs.writeFileSync(this.fileName, JSON.stringify(this.data, null, 2));
     }
 
-    public get(key: keyof T): any {
+    public get<K extends keyof T>(key: K): T[K] {
         return this.data[key];
     }
 
@@ -34,7 +35,7 @@ class Database<T> {
         this.write();
     }
 
-    public update(key: keyof T, updateFn: (value: any) => any): void {
+    public update<K extends keyof T>(key: K, updateFn: (value: T[K]) => T[K]): void {
         if (this.data[key] !== undefined) {
             this.data[key] = updateFn(this.data[key]);
             this.write();

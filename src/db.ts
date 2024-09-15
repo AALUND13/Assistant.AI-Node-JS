@@ -9,5 +9,5 @@ const DefaultData: Data = {
 export const db = new Database<Data>('data.json', DefaultData);
 
 export function GetOrCreateUserData(userId: string): UserData {
-    return db.data.UserData[userId] ?? { commandCooldowns: {} };
+    return db.get('UserData')[userId] ?? { commandCooldowns: {} };
 }

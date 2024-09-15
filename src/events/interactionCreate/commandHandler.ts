@@ -34,7 +34,7 @@ export async function execute(interaction: Interaction) {
 
         if (command.commandOptions?.cooldown) {
             data.commandCooldowns[command.data.name] = Date.now() + command.commandOptions.cooldown;
-            db.data!.UserData[userId] = data;
+            db.get('UserData')[userId] = data;
             db.write();
         }
     } catch (error) {
