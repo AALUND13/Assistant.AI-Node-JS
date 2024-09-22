@@ -1,11 +1,11 @@
 import { Message } from "discord.js";
 import OpenAI from "openai";
 import { ChatCompletionAssistantMessageParam, ChatCompletionContentPart, ChatCompletionMessageParam, ChatCompletionUserMessageParam, ChatModel } from "openai/resources";
-import { logger } from "../logger";
+import { logger } from "../../logger";
 
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
-import { client } from "../client";
+import { client } from "../../client";
 
 export const openAI = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 

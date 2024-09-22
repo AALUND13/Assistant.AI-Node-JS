@@ -1,5 +1,5 @@
 import { Client, Message, PermissionFlagsBits, TextChannel } from "discord.js";
-import { GuildAI, openAI } from "../../utils/GuildAI";
+import { GuildAI, openAI } from "../../utils/AI/GuildAI";
 
 const GuildChatAI = new Map<string, GuildAI>();
 
